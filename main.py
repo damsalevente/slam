@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import deque
 import struct
+from scipy.spatial.transform import Rotation 
 
 
 from PIL import Image
@@ -15,7 +16,7 @@ DRAW_SCATTER = os.getenv("DRAW_SCATTER") if not None else None # draw a 3d scatt
 DRAW_IMG = os.getenv("DRAW_IMG") if not None else None
 
 class DroneData:
-    def __init__(self, image_path,image_right,image_down,segmentation_path,depth_path, gyro, accel, position, velocity, gps):
+    def __init__(self, image_path,image_right,image_down,segmentation_path,depth_path, gyro, accel, position, velocity, gps, ang_vel, attittude):
         self.image_left = image_path
         self.image_right = image_right
         self.image_down = image_down
@@ -26,10 +27,43 @@ class DroneData:
         self.pos = self._ned2xyz(position)
         self.velocity = self._ned2xyz(velocity)
         self.gps = gps
+        self.angular_velocity = ang_vel
+        self.attitude = attittude
 
     def _ned2xyz(self, data):
         return np.array([data[0], -data[1], -data[2]])
 
+    def calc_6dof(self):
+        '''
+        ground truth could be either the querterinos or the euler angles 
+        for now i try to calculate the euler matrix from the gt querterinos
+        '''
+        print('ATT: {}'.format(self.attitude))
+        q = self.attitude #don't want to write too much 
+        position = self.pos
+        # normalize 
+        R =  2 * np.array([ [q[0] * q[0] + q[1] * q[1] - 0.5, q[1] * q[2] - q[0]*q[3], q[1]*q[3] + q[0]*q[2]],
+                          [q[1] * q[2] + q[0]*q[3], q[0] **2 + q[2] ** 2 - 0.5, q[2]*q[3] - q[0] * q[1]],
+                          [q[1] * q[3] - q[0]*q[2], q[2]*q[3] + q[0] * q[3], q[0]**2 + q[3] **2 - 0.5]])
+
+        sy = np.sqrt(R[0,0] * R[0,0] + R[1,0] * R[1,0])
+        singular = sy  < 1e-6
+        if not singular:
+            x = np.arctan2(R[2,1], R[2,2])
+            y = np.arctan2(-R[2,0], sy)
+            z = np.arctan2(R[1,0], R[0,0])
+        else:
+            x = np.arctan2(-R[1,2], R[1,1])
+            y = np.arctan2(-R[2,0], sy)
+            z = 0
+        return position, np.array([x,y,z])
+
+    def calc_euler(self):
+        rot = Rotation.from_quat(self.attitude)
+        rot_euler = rot.as_euler('xyz',degrees = False)
+        return rot_euler
+
+        
 class MidAirDataset:
     def __init__(self, dataset_path = '/media/nap/rootMX18.1/home/levente/Dev/data/MidAir/PLE_training/fall'):
         # hard code first, think second
@@ -89,10 +123,12 @@ class MidAirDataset:
         accel = self._get_numpy('imu/accelerometer')[gt_imu_idx]
         position = self._get_numpy( 'groundtruth/position')[gt_imu_idx]
         velocity = self._get_numpy('groundtruth/velocity')[gt_imu_idx]
+        ang_velocity = self._get_numpy('groundtruth/angular_velocity')[gt_imu_idx]
+        att = self._get_numpy('groundtruth/attitude')[gt_imu_idx]
 
         gps = self._get_numpy('gps/position')[gps_idx] # floor (t)  in the midair data organization
 
-        return DroneData(image_path,image_right,image_down,segmentation_path,depth_path, gyro, accel, position, velocity, gps)
+        return DroneData(image_path,image_right,image_down,segmentation_path,depth_path, gyro, accel, position, velocity, gps, ang_velocity, att)
         
 
 def create_output(verts, colors, fname):
@@ -240,13 +276,15 @@ if __name__ == "__main__":
     camera_intrinsics  = np.asarray([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
     fname = "rgbd_pointcloud.ply"
     for idx, drone_data in enumerate(midair):
+        pos, angle = drone_data.calc_6dof()
+        angle2 = drone_data.calc_euler()
+        print('angle: {}\nrepo: {}\nDiff:{}\n'.format(angle, angle2, angle2  - angle))
+        exit(1)
         if idx % 4 != 0:
             continue
         prev_img = drone_data.image_left
         img = cv2.imread(drone_data.image_left, cv2.COLOR_BGR2HLS)
         img_r = cv2.imread(drone_data.image_right, cv2.COLOR_BGR2HLS)
-        print(img)
-        print(img_r)
 
         #img_depth = np.stack([cv2.imread(drone_data.depth_path, cv2.COLOR_BGR2HLS)] * 3, axis = 2)
         #print(img_depth.shape)
@@ -284,8 +322,6 @@ if __name__ == "__main__":
             c_points, color_points = get_pointcloud(img, img_depth, camera_intrinsics)
             write_pointcloud(fname, c_points, color_points)
 
-        print("position: {}".format(drone_data.pos))
-        print("raw data: {} , {}".format(drone_data.gyro, drone_data.accel))
         if DRAW_IMG:
             cv2.imshow("image", img_conc)
         cv2.waitKey(1)
