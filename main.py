@@ -72,6 +72,7 @@ class MidAirDataset:
         gps = self._get_numpy('gps/position')[gps_idx] # floor (t)  in the midair data organization
 
         return (image_path,image_right,image_down,segmentation_path,depth_path, gyro, accel, position, velocity, gps)
+
 def create_output(verts, colors, fname):
     colors = colors.reshape(-1, 3)
     vertices = np.hstack([verts.reshape(-1,3), colors])
@@ -87,7 +88,7 @@ def create_output(verts, colors, fname):
         end_header
         '''
     with open(fname, "w") as f:
-        f.write(ply_header % dict(vert_num = len([vertices])))
+        f.write(ply_header % dict(vert_num = len(vertices)))
         np.savetxt(f, vertices, '%f %f %f %d %d %d')
 
 def process_3d_mesh(img1, img2):
@@ -96,23 +97,21 @@ def process_3d_mesh(img1, img2):
     '''
     h, w = img1.shape[:2]
     print(h,w)
-    img_left = cv2.resize(img1, (8,8))
-    img_right =cv2.resize(img2, (8,8))
+    img_left = cv2.pyrDown(img1)
+    img_right =cv2.pyrDown(img2)
     win_size = 1
-    min_disp = 16
+    min_disp = 32
     max_disp = min_disp * 9 
     num_disp = max_disp - min_disp
     print('process called')
-    stereo = cv2.StereoSGBM(minDisparity = min_disp, 
+    stereo = cv2.StereoSGBM_create(minDisparity = min_disp, 
             numDisparities = num_disp,
-            SADWindowSize = win_size,
             uniquenessRatio = 10,
             speckleWindowSize = 100,
             speckleRange = 32,
             disp12MaxDiff = 1,
-            P1 = 8 * 3 * np.power(win_size ,2),
-            P2 = 32 * 3 * np.power(win_size, 2),
-            fullDP = True
+            P1 = 8 * 3 * win_size  ** 2,
+            P2 = 32 * 3 * win_size ** 2
            )
     print(stereo)
     print('stereo created')
@@ -121,9 +120,9 @@ def process_3d_mesh(img1, img2):
     h, w = img_left.shape[:2]
     focal_length = 0.8 * w 
     Q = np.float32([[1, 0, 0 , -w/2.0],
-        [0, -1, 0, h/2.0],
-        [0, 0, 0, -focal_length],
-        [0, 0, 1, 0]])
+                    [0, -1, 0, h/2.0],
+                    [0, 0, 0, -focal_length],
+                    [0, 0, 1, 0]])
     points_3d = cv2.reprojectImageTo3D(disparity_map, Q)
     print('projection done')
     colors = cv2.cvtColor(img_left, cv2.COLOR_BGR2RGB)
@@ -133,8 +132,11 @@ def process_3d_mesh(img1, img2):
 
     create_output(output_points, output_colors, 'result.ply')
 
+
+
+
 if __name__ == "__main__":
-    midair = MidAirDataset('/media/nap/rootMX18.1/home/levente/Dev/data/MidAir/PLE_training/fall') # default path used 
+    midair = MidAirDataset('/media/nap/rootMX18.1/home/levente/Dev/data/MidAir/PLE_training/fall')
     trajs = midair.get_trajectories()
     midair.select_trajectory_name('trajectory_4000')
     prev_img = None
@@ -154,6 +156,8 @@ if __name__ == "__main__":
         prev_img = img_left
         img = cv2.imread(img_left, cv2.COLOR_BGR2HLS)
         img_r = cv2.imread(img_right, cv2.COLOR_BGR2HLS)
+        print(img)
+        print(img_r)
 
         img_depth = cv2.imread(depth, cv2.COLOR_BGR2HLS)
         img_depth_3ch = cv2.cvtColor(img_depth, cv2.COLOR_GRAY2RGB)
@@ -185,7 +189,7 @@ if __name__ == "__main__":
 
 
         # test the 3d point cloud from stereo image from opencv example book
-        #process_3d_mesh(img, img_r)
+        process_3d_mesh(img, img_r)
 
         print("position: {}".format(pos))
         print("raw data: {} , {}".format(gyro, accel))
