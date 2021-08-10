@@ -35,6 +35,10 @@ Second: Mapping, Input: Keyframe from Tracking, this includees map points defini
 Loop closing: voltunk-e mar itt? 
 
 
-# generated mesh from one point cloud 
+## generated mesh from one point cloud with stereo cameras
 
 ![](snapshot00.png)
+
+## generated mesh from point cloud using the depth and rgb image
+![](./snapshot_00-00.png)
+

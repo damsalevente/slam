@@ -4,6 +4,7 @@ import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import deque
+import struct
 
 
 from PIL import Image
@@ -91,6 +92,62 @@ def create_output(verts, colors, fname):
         f.write(ply_header % dict(vert_num = len(vertices)))
         np.savetxt(f, vertices, '%f %f %f %d %d %d')
 
+def get_pointcloud(color_image, depth_image, camera_intrinsics):
+    """ from: https://gist.github.com/Shreeyak/9a4948891541cb32b501d058db227fff
+    creates 3D point cloud of rgb images by taking depth information
+        input : color image: numpy array[h,w,c], dtype= uint8
+                depth image: numpy array[h,w] values of all channels will be same
+        output : camera_points, color_points - both of shape(no. of pixels, 3)
+    """
+
+    image_height = depth_image.shape[0]
+    image_width = depth_image.shape[1]
+    pixel_x,pixel_y = np.meshgrid(np.linspace(0,image_width-1,image_width),
+                                  np.linspace(0,image_height-1,image_height))
+    camera_points_x = np.multiply(pixel_x-camera_intrinsics[0,2],depth_image/camera_intrinsics[0,0])
+    camera_points_y = np.multiply(pixel_y-camera_intrinsics[1,2],depth_image/camera_intrinsics[1,1])
+    camera_points_z = depth_image
+    camera_points = np.array([camera_points_x,camera_points_y,camera_points_z]).transpose(1,2,0).reshape(-1,3)
+
+    color_points = color_image.reshape(-1,3)
+
+    # Remove invalid 3D points (where depth == 0)
+    valid_depth_ind = np.where(depth_image.flatten() > 0)[0]
+    camera_points = camera_points[valid_depth_ind,:]
+    color_points = color_points[valid_depth_ind,:]
+
+    return camera_points,color_points
+
+def write_pointcloud(filename,xyz_points,rgb_points=None):
+
+    """ creates a .pkl file of the point clouds generated
+    """
+
+    assert xyz_points.shape[1] == 3,'Input XYZ points should be Nx3 float array'
+    if rgb_points is None:
+        rgb_points = np.ones(xyz_points.shape).astype(np.uint8)*255
+    assert xyz_points.shape == rgb_points.shape,'Input RGB colors should be Nx3 float array and have same size as input XYZ points'
+
+    # Write header of .ply file
+    fid = open(filename,'wb')
+    fid.write(bytes('ply\n', 'utf-8'))
+    fid.write(bytes('format binary_little_endian 1.0\n', 'utf-8'))
+    fid.write(bytes('element vertex %d\n'%xyz_points.shape[0], 'utf-8'))
+    fid.write(bytes('property float x\n', 'utf-8'))
+    fid.write(bytes('property float y\n', 'utf-8'))
+    fid.write(bytes('property float z\n', 'utf-8'))
+    fid.write(bytes('property uchar red\n', 'utf-8'))
+    fid.write(bytes('property uchar green\n', 'utf-8'))
+    fid.write(bytes('property uchar blue\n', 'utf-8'))
+    fid.write(bytes('end_header\n', 'utf-8'))
+
+    # Write 3D points to .ply file
+    for i in range(xyz_points.shape[0]):
+        fid.write(bytearray(struct.pack("fffccc",xyz_points[i,0],xyz_points[i,1],xyz_points[i,2],
+                                        rgb_points[i,0].tostring(),rgb_points[i,1].tostring(),
+                                        rgb_points[i,2].tostring())))
+    fid.close()
+
 def process_3d_mesh(img1, img2):
     ''' 
     segfault for some reason, needs to be checked after training is finished 
@@ -136,10 +193,12 @@ def process_3d_mesh(img1, img2):
 
 
 if __name__ == "__main__":
+    # midair dataset stuff
     midair = MidAirDataset('/media/nap/rootMX18.1/home/levente/Dev/data/MidAir/PLE_training/fall')
     trajs = midair.get_trajectories()
     midair.select_trajectory_name('trajectory_4000')
-    prev_img = None
+    prev_img = None # for main loop to skip same images to redraw
+    # imu plotting stuff
     xdata = deque([100]*200)
     ydata = deque([5.0]*200)
     zdata = deque([4.0]*200)
@@ -149,19 +208,27 @@ if __name__ == "__main__":
     plt.ion()
     fig = plt.figure()
     ax = plt.axes(projection = '3d')
+    # rgbd stuff 
+    fx = 512 # in pixels, fov = 90 degree, image size = 1024: focal length: (image_size/2) / tg(fov/2)
+    fy = 512 # same size
+    cx = 256
+    cy = 256
 
+    camera_intrinsics  = np.asarray([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+    fname = "rgbd_pointcloud.ply"
     for (idx, (img_left, img_right, img_down, seg, depth, gyro, accel, pos, velocity, gps_pos)) in enumerate(midair):
         if prev_img == img_left:
             continue
         prev_img = img_left
-        img = cv2.imread(img_left, cv2.COLOR_BGR2HLS)
-        img_r = cv2.imread(img_right, cv2.COLOR_BGR2HLS)
+        img = cv2.imread(img_left, cv2.COLOR_BGR2RGB)
+        img_r = cv2.imread(img_right, cv2.COLOR_BGR2RGB)
         print(img)
         print(img_r)
 
-        img_depth = cv2.imread(depth, cv2.COLOR_BGR2HLS)
+        img_depth = cv2.imread(depth, cv2.COLOR_BGR2GRAY)
+        print(img_depth.shape)
         img_depth_3ch = cv2.cvtColor(img_depth, cv2.COLOR_GRAY2RGB)
-        img_conc = np.concatenate((img, img_depth_3ch), axis = 1)
+        #img_conc = np.concatenate((img, img_depth_3ch), axis = 1)
 
         '''
         xdata.append(gps_pos[0])
@@ -189,11 +256,16 @@ if __name__ == "__main__":
 
 
         # test the 3d point cloud from stereo image from opencv example book
-        process_3d_mesh(img, img_r)
+        #process_3d_mesh(img, img_r) 
+
+        # test the rgbd image 
+        c_points, color_points = get_pointcloud(img, img_depth, camera_intrinsics)
+        write_pointcloud(fname, c_points, color_points)
+        exit(1)
 
         print("position: {}".format(pos))
         print("raw data: {} , {}".format(gyro, accel))
 
-        cv2.imshow("image", img_conc)
+        #cv2.imshow("image", img_conc)
         cv2.waitKey(1)
 
