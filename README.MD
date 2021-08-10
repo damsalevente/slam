@@ -33,3 +33,8 @@ First: Tracking, Input: Image/frame, this includes feature extraction pose estim
 Second: Mapping, Input: Keyframe from Tracking, this includees map points definition, local bundle adjustment, keyyframe culling -> output: pose and map, and input for Loop closing
 
 Loop closing: voltunk-e mar itt? 
+
+
+# generated mesh from one point cloud 
+
+![](snapshot00.png)
