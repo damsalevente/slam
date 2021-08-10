@@ -9,6 +9,26 @@ import struct
 
 from PIL import Image
 
+DRAW_PCL = os.getenv("DRAW_PCL") if not None else None # whether to create a point cloud file ( it is slow ) 
+DRAW_PCL_STEREO = os.getenv("DRAW_PCL_STEREO") if not None else None # same as above, but with the stereo camera method
+DRAW_SCATTER = os.getenv("DRAW_SCATTER") if not None else None # draw a 3d scatter plot based on images
+DRAW_IMG = os.getenv("DRAW_IMG") if not None else None
+
+class DroneData:
+    def __init__(self, image_path,image_right,image_down,segmentation_path,depth_path, gyro, accel, position, velocity, gps):
+        self.image_left = image_path
+        self.image_right = image_right
+        self.image_down = image_down
+        self.segmentation_path = segmentation_path
+        self.depth_path = depth_path
+        self.gyro = self._ned2xyz(gyro)
+        self.accel = self._ned2xyz(accel)
+        self.pos = self._ned2xyz(position)
+        self.velocity = self._ned2xyz(velocity)
+        self.gps = gps
+
+    def _ned2xyz(self, data):
+        return np.array([data[0], -data[1], -data[2]])
 
 class MidAirDataset:
     def __init__(self, dataset_path = '/media/nap/rootMX18.1/home/levente/Dev/data/MidAir/PLE_training/fall'):
@@ -72,7 +92,8 @@ class MidAirDataset:
 
         gps = self._get_numpy('gps/position')[gps_idx] # floor (t)  in the midair data organization
 
-        return (image_path,image_right,image_down,segmentation_path,depth_path, gyro, accel, position, velocity, gps)
+        return DroneData(image_path,image_right,image_down,segmentation_path,depth_path, gyro, accel, position, velocity, gps)
+        
 
 def create_output(verts, colors, fname):
     colors = colors.reshape(-1, 3)
@@ -99,7 +120,8 @@ def get_pointcloud(color_image, depth_image, camera_intrinsics):
                 depth image: numpy array[h,w] values of all channels will be same
         output : camera_points, color_points - both of shape(no. of pixels, 3)
     """
-
+    color_image = cv2.pyrDown(color_image)
+    depth_image = cv2.pyrDown(depth_image)
     image_height = depth_image.shape[0]
     image_width = depth_image.shape[1]
     pixel_x,pixel_y = np.meshgrid(np.linspace(0,image_width-1,image_width),
@@ -199,12 +221,13 @@ if __name__ == "__main__":
     midair.select_trajectory_name('trajectory_4000')
     prev_img = None # for main loop to skip same images to redraw
     # imu plotting stuff
-    xdata = deque([100]*200)
-    ydata = deque([5.0]*200)
-    zdata = deque([4.0]*200)
-    gt_xdata = deque([100]*200)
-    gt_ydata = deque([5.0]*200)
-    gt_zdata = deque([4.0]*200)
+    dbuf_size = 10000
+    xdata = deque([100]*dbuf_size)
+    ydata = deque([5.0]*dbuf_size)
+    zdata = deque([4.0]*dbuf_size)
+    gt_xdata = deque([100]*dbuf_size)
+    gt_ydata = deque([5.0]*dbuf_size)
+    gt_zdata = deque([4.0]*dbuf_size)
     plt.ion()
     fig = plt.figure()
     ax = plt.axes(projection = '3d')
@@ -216,56 +239,54 @@ if __name__ == "__main__":
 
     camera_intrinsics  = np.asarray([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
     fname = "rgbd_pointcloud.ply"
-    for (idx, (img_left, img_right, img_down, seg, depth, gyro, accel, pos, velocity, gps_pos)) in enumerate(midair):
-        if prev_img == img_left:
+    for idx, drone_data in enumerate(midair):
+        if idx % 4 != 0:
             continue
-        prev_img = img_left
-        img = cv2.imread(img_left, cv2.COLOR_BGR2RGB)
-        img_r = cv2.imread(img_right, cv2.COLOR_BGR2RGB)
+        prev_img = drone_data.image_left
+        img = cv2.imread(drone_data.image_left, cv2.COLOR_BGR2HLS)
+        img_r = cv2.imread(drone_data.image_right, cv2.COLOR_BGR2HLS)
         print(img)
         print(img_r)
 
-        img_depth = cv2.imread(depth, cv2.COLOR_BGR2GRAY)
-        print(img_depth.shape)
-        img_depth_3ch = cv2.cvtColor(img_depth, cv2.COLOR_GRAY2RGB)
-        #img_conc = np.concatenate((img, img_depth_3ch), axis = 1)
+        #img_depth = np.stack([cv2.imread(drone_data.depth_path, cv2.COLOR_BGR2HLS)] * 3, axis = 2)
+        #print(img_depth.shape)
+        #print(img.shape)
+        img_conc = np.concatenate((img, img_r))
 
-        '''
-        xdata.append(gps_pos[0])
-        ydata.append(gps_pos[1])
-        zdata.append(gps_pos[2])
+        xdata.append(drone_data.pos[0])
+        ydata.append(drone_data.pos[1])
+        zdata.append(drone_data.pos[2])
 
-        gt_xdata.append(pos[0])
-        gt_ydata.append(pos[1])
-        gt_zdata.append(pos[2])
+        #gt_xdata.append(drone_data.pos[0])
+        #gt_ydata.append(drone_data.pos[1])
+        #gt_zdata.append(drone_data.pos[2])
 
         xdata.popleft()
         ydata.popleft()
         zdata.popleft()
 
-        gt_xdata.popleft()
-        gt_ydata.popleft()
-        gt_zdata.popleft()
-
-        ax.scatter3D(list(xdata), list(ydata), list(zdata), c = np.arange(200), cmap = 'Greens')
-        ax.scatter3D(list(gt_xdata), list(gt_ydata), list(gt_zdata), c = np.arange(200), cmap = 'Blues')
-        plt.draw()
-        plt.pause(0.04)
-        ax.cla()
-        '''
+        #gt_xdata.popleft()
+        #gt_ydata.popleft()
+        #gt_zdata.popleft()
+        if DRAW_SCATTER:
+            ax.scatter3D(list(xdata), list(ydata), list(zdata), c = np.arange(dbuf_size), cmap = 'Greens')
+            plt.draw()
+            plt.pause(0.02)
+            ax.cla()
 
 
         # test the 3d point cloud from stereo image from opencv example book
-        #process_3d_mesh(img, img_r) 
+        if DRAW_PCL_STEREO:
+            process_3d_mesh(img, img_r) 
 
         # test the rgbd image 
-        c_points, color_points = get_pointcloud(img, img_depth, camera_intrinsics)
-        write_pointcloud(fname, c_points, color_points)
-        exit(1)
+        if DRAW_PCL:
+            c_points, color_points = get_pointcloud(img, img_depth, camera_intrinsics)
+            write_pointcloud(fname, c_points, color_points)
 
-        print("position: {}".format(pos))
-        print("raw data: {} , {}".format(gyro, accel))
-
-        #cv2.imshow("image", img_conc)
+        print("position: {}".format(drone_data.pos))
+        print("raw data: {} , {}".format(drone_data.gyro, drone_data.accel))
+        if DRAW_IMG:
+            cv2.imshow("image", img_conc)
         cv2.waitKey(1)
 

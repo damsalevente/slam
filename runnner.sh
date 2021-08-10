@@ -1,0 +1,3 @@
+#DRAW_PCL=1 
+#DRAW_PCL_S=1  
+DRAW_SCATTER=1  DRAW_IMG=1 python main.py
