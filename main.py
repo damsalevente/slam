@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from collections import deque
 import struct
 from scipy.spatial.transform import Rotation 
-
+import multiprocessing
 
 from PIL import Image
 
@@ -14,6 +14,7 @@ DRAW_PCL = os.getenv("DRAW_PCL") if not None else None # whether to create a poi
 DRAW_PCL_STEREO = os.getenv("DRAW_PCL_STEREO") if not None else None # same as above, but with the stereo camera method
 DRAW_SCATTER = os.getenv("DRAW_SCATTER") if not None else None # draw a 3d scatter plot based on images
 DRAW_IMG = os.getenv("DRAW_IMG") if not None else None
+
 
 class DroneData:
     def __init__(self, image_path,image_right,image_down,segmentation_path,depth_path, gyro, accel, position, velocity, gps, ang_vel, attittude):
@@ -248,7 +249,13 @@ def process_3d_mesh(img1, img2):
     create_output(output_points, output_colors, 'result.ply')
 
 
+def deg(x):
+    return x * 180 / np.pi
 
+def disp(x):
+    cv2.imshow('image', x)
+    cv2.waitKey(1000)
+    cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     # midair dataset stuff
@@ -277,35 +284,35 @@ if __name__ == "__main__":
     fname = "rgbd_pointcloud.ply"
     for idx, drone_data in enumerate(midair):
         pos, angle = drone_data.calc_6dof()
-        angle2 = drone_data.calc_euler()
-        print('angle: {}\nrepo: {}\nDiff:{}\n'.format(angle, angle2, angle2  - angle))
-        exit(1)
+        #angle = drone_data.calc_euler()
+        print("Rx: {}\nRy :{}\nRz: {}".format(deg(angle[0]), deg(angle[1]), deg(angle[2])))
+        print("tx: {}\nty: {}\ntz: {}".format(pos[0], pos[1], pos[2]))
+        print('-----------------')
         if idx % 4 != 0:
             continue
         prev_img = drone_data.image_left
         img = cv2.imread(drone_data.image_left, cv2.COLOR_BGR2HLS)
         img_r = cv2.imread(drone_data.image_right, cv2.COLOR_BGR2HLS)
 
-        #img_depth = np.stack([cv2.imread(drone_data.depth_path, cv2.COLOR_BGR2HLS)] * 3, axis = 2)
-        #print(img_depth.shape)
-        #print(img.shape)
+        img_depth = cv2.imread(drone_data.depth_path, cv2.COLOR_BGR2HLS)
         img_conc = np.concatenate((img, img_r))
 
-        xdata.append(drone_data.pos[0])
-        ydata.append(drone_data.pos[1])
-        zdata.append(drone_data.pos[2])
+        if DRAW_SCATTER:
+            xdata.append(drone_data.pos[0])
+            ydata.append(drone_data.pos[1])
+            zdata.append(drone_data.pos[2])
 
-        #gt_xdata.append(drone_data.pos[0])
-        #gt_ydata.append(drone_data.pos[1])
-        #gt_zdata.append(drone_data.pos[2])
+            #gt_xdata.append(drone_data.pos[0])
+            #gt_ydata.append(drone_data.pos[1])
+            #gt_zdata.append(drone_data.pos[2])
 
-        xdata.popleft()
-        ydata.popleft()
-        zdata.popleft()
+            xdata.popleft()
+            ydata.popleft()
+            zdata.popleft()
 
-        #gt_xdata.popleft()
-        #gt_ydata.popleft()
-        #gt_zdata.popleft()
+            #gt_xdata.popleft()
+            #gt_ydata.popleft()
+            #gt_zdata.popleft()
         if DRAW_SCATTER:
             ax.scatter3D(list(xdata), list(ydata), list(zdata), c = np.arange(dbuf_size), cmap = 'Greens')
             plt.draw()
@@ -323,6 +330,8 @@ if __name__ == "__main__":
             write_pointcloud(fname, c_points, color_points)
 
         if DRAW_IMG:
-            cv2.imshow("image", img_conc)
-        cv2.waitKey(1)
+            cv2.imshow('image', img)
+            cv2.waitKey(1)
 
+
+    sw.stop()
