@@ -34,6 +34,46 @@ Second: Mapping, Input: Keyframe from Tracking, this includees map points defini
 
 Loop closing: voltunk-e mar itt? 
 
+## Plan
+
+### Get 6dof position 
+
+#### input 
+
+get 2 images from time t and t + dt (dt is currently 10ms)
+
+add the sensor data between the 2 timestamps ( currently a 60 element vector)
+
+#### output
+
+6dof delta (euler angles + translation difference between the 2 images)
+
+
+#### application 
+
+Starting from p : (x,y,z, rx, ry, rz) = (0,0,0,0,0,0):
+
+append imu data to the 60 element vector 
+After 10ms, obtain the current image, and the starting image
+
+run the model  -> output dp : (dx,dy,dz, drx, dry, drz)
+
+modify p with -> p = p + dp
+
+## Another option
+
+Predict a depth map, or flow map from 2 images
+
+## RL 
+
+After the pretrained model, we could use it on trajectories
+
+One trajectory could be a game, where we need to estimate the pose of the drone
+
+Update the model using RL methods, where we update after each trajectory
+
+The reward is the total loss vs the ground truth
+
 
 ## generated mesh from one point cloud with stereo cameras
 

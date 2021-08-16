@@ -7,6 +7,7 @@ from collections import deque
 import struct
 from scipy.spatial.transform import Rotation 
 import multiprocessing
+from model import Darknet53
 
 from PIL import Image
 
@@ -39,7 +40,6 @@ class DroneData:
         ground truth could be either the querterinos or the euler angles 
         for now i try to calculate the euler matrix from the gt querterinos
         '''
-        print('ATT: {}'.format(self.attitude))
         q = self.attitude #don't want to write too much 
         position = self.pos
         # normalize 
@@ -256,6 +256,12 @@ def disp(x):
     cv2.imshow('image', x)
     cv2.waitKey(1000)
     cv2.destroyAllWindows()
+
+def iocheck_dl(dd):
+    '''
+    input: list of drone data element
+    '''
+
 
 if __name__ == "__main__":
     # midair dataset stuff
