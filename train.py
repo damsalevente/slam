@@ -41,7 +41,6 @@ class DeltaDataset(Dataset):
         # https://stackoverflow.com/questions/1755631/difference-between-two-quaternions
         y_angle = quaternion.as_float_array(dd_future.to_quart() * np.conjugate(self.midair[idx].to_quart()))
         y = np.append(y_pos, y_angle)
-        print(y.shape)
 
         return trans(X), torch.tensor(data, dtype=torch.float32).flatten(),  torch.tensor(y, dtype=torch.float32).flatten()
 
@@ -57,10 +56,10 @@ if __name__ == "__main__":
     device = 'cuda'
     model = darknet53(7).to(device)
 
-    trainloader = DataLoader(DeltaDataset(), batch_size = 8, shuffle = True, pin_memory = True) 
+    trainloader = DataLoader(DeltaDataset(), batch_size = 8, shuffle = False, pin_memory = True) 
 
     criterion = torch.nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr = 1e-3)
+    optimizer = optim.Adam(model.parameters(), lr = 1e-4)
 
     for epoch in range(40):  # loop over the dataset multiple times
 
