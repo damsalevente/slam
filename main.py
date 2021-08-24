@@ -8,7 +8,7 @@ import struct
 from scipy.spatial.transform import Rotation 
 import multiprocessing
 from model import Darknet53
-
+import quaternion
 from PIL import Image
 
 DRAW_PCL = os.getenv("DRAW_PCL") if not None else None # whether to create a point cloud file ( it is slow ) 
@@ -35,29 +35,9 @@ class DroneData:
     def _ned2xyz(self, data):
         return np.array([data[0], -data[1], -data[2]])
 
-    def calc_6dof(self):
-        '''
-        ground truth could be either the querterinos or the euler angles 
-        for now i try to calculate the euler matrix from the gt querterinos
-        '''
-        q = self.attitude #don't want to write too much 
-        position = self.pos
-        # normalize 
-        R =  2 * np.array([ [q[0] * q[0] + q[1] * q[1] - 0.5, q[1] * q[2] - q[0]*q[3], q[1]*q[3] + q[0]*q[2]],
-                          [q[1] * q[2] + q[0]*q[3], q[0] **2 + q[2] ** 2 - 0.5, q[2]*q[3] - q[0] * q[1]],
-                          [q[1] * q[3] - q[0]*q[2], q[2]*q[3] + q[0] * q[3], q[0]**2 + q[3] **2 - 0.5]])
+    def to_quart(self):
+        return np.quaternion(self.attitude[0], self.attitude[1], self.attitude[2], self.attitude[3])
 
-        sy = np.sqrt(R[0,0] * R[0,0] + R[1,0] * R[1,0])
-        singular = sy  < 1e-6
-        if not singular:
-            x = np.arctan2(R[2,1], R[2,2])
-            y = np.arctan2(-R[2,0], sy)
-            z = np.arctan2(R[1,0], R[0,0])
-        else:
-            x = np.arctan2(-R[1,2], R[1,1])
-            y = np.arctan2(-R[2,0], sy)
-            z = 0
-        return position, np.array([x,y,z])
 
     def calc_euler(self):
         rot = Rotation.from_quat(self.attitude)
@@ -77,27 +57,32 @@ class MidAirDataset:
         #self.dset = f1['trajectory_4006']
         self.trajectories = self.get_trajectories()
         self.selected_trajectory = self.trajectories[0]
-        # N is the trajectory length in seconds 
+        self.dset = self.f1[self.selected_trajectory]
         print("init done")
+
+    def _update_dset(self):
+        self.dset = self.f1[self.selected_trajectory]
 
     def get_trajectories(self):
         return list(self.f1.keys())
 
     def select_trajectory_idx(self, idx):
         self.selected_trajectory = self.trajectories[idx]
+        self._update_dset()
 
     def select_trajectory_name(self, name):
         self.selected_trajectory = name
+        self._update_dset()
 
     def _get_numpy(self, what):
-        return np.array(self.f1[self.selected_trajectory].get(what))
+        return np.array(self.dset.get(what))
 
     def _trajectory_len(self):
         return len(self.trajectories)
 
     def __len__(self):
         '''
-        return current trajectory lenght in seconds
+        return current trajectory length in 10ms 
         '''
         traj_len = self._get_numpy('camera_data/color_left').shape[0]
         print(traj_len)
@@ -111,9 +96,9 @@ class MidAirDataset:
         return image, image path, segmentation path, gyros, accel, and other ground truth values for slam
         '''
         #color_down  color_left  color_right  depth  segmentation
-        img_idx = int(np.floor(0.25 * t))
-        gt_imu_idx = t
-        gps_idx = int(np.floor(0.01 * t))
+        img_idx = int(np.floor(0.25 * t)) # t = 4 , 40ms
+        gt_imu_idx = t # t = 1, 10ms 
+        gps_idx = int(np.floor(0.01 * t)) # t = 10, 100ms yields the next data element
         image_path = os.path.join(self.dataset_path, self._get_numpy('camera_data/color_left')[img_idx].decode('utf-8'))
         image_right = os.path.join(self.dataset_path, self._get_numpy('camera_data/color_right')[img_idx].decode('utf-8'))
         image_down = os.path.join(self.dataset_path, self._get_numpy('camera_data/color_down')[img_idx].decode('utf-8'))
@@ -270,7 +255,7 @@ if __name__ == "__main__":
     midair.select_trajectory_name('trajectory_4000')
     prev_img = None # for main loop to skip same images to redraw
     # imu plotting stuff
-    dbuf_size = 10000
+    dbuf_size = 10
     xdata = deque([100]*dbuf_size)
     ydata = deque([5.0]*dbuf_size)
     zdata = deque([4.0]*dbuf_size)
@@ -289,19 +274,19 @@ if __name__ == "__main__":
     camera_intrinsics  = np.asarray([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
     fname = "rgbd_pointcloud.ply"
     for idx, drone_data in enumerate(midair):
-        pos, angle = drone_data.calc_6dof()
-        #angle = drone_data.calc_euler()
-        print("Rx: {}\nRy :{}\nRz: {}".format(deg(angle[0]), deg(angle[1]), deg(angle[2])))
-        print("tx: {}\nty: {}\ntz: {}".format(pos[0], pos[1], pos[2]))
-        print('-----------------')
+        #pos, angle = drone_data.calc_6dof()
+        ##angle = drone_data.calc_euler()
+        #print("Rx: {}\nRy :{}\nRz: {}".format(deg(angle[0]), deg(angle[1]), deg(angle[2])))
+        #print("tx: {}\nty: {}\ntz: {}".format(pos[0], pos[1], pos[2]))
+        #print('-----------------')
         if idx % 4 != 0:
             continue
-        prev_img = drone_data.image_left
+        #prev_img = drone_data.image_left
         img = cv2.imread(drone_data.image_left, cv2.COLOR_BGR2HLS)
-        img_r = cv2.imread(drone_data.image_right, cv2.COLOR_BGR2HLS)
+        #img_r = cv2.imread(drone_data.image_right, cv2.COLOR_BGR2HLS)
 
-        img_depth = cv2.imread(drone_data.depth_path, cv2.COLOR_BGR2HLS)
-        img_conc = np.concatenate((img, img_r))
+        #img_depth = cv2.imread(drone_data.depth_path, cv2.COLOR_BGR2HLS)
+        #img_conc = np.concatenate((img, img_r))
 
         if DRAW_SCATTER:
             xdata.append(drone_data.pos[0])

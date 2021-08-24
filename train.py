@@ -6,11 +6,12 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import torch.optim as optim
+import quaternion
 
 def loss_function(y_true, y):
     trasnlation_loss = torch.nn.functional.mse_loss(y_true[:,:3], y[:,:3])
     angle = torch.nn.functional.mse_loss(y_true[:,3:], y[:,3:])
-    loss = (100 * angle + trasnlation_loss)
+    loss = angle + trasnlation_loss
     return loss
 
 trans = transforms.Compose([
@@ -37,8 +38,10 @@ class DeltaDataset(Dataset):
         X = np.concatenate((img, img_next))
         # y 
         y_pos = dd_future.pos - self.midair[idx].pos
-        y_angle = dd_future.calc_6dof()[1] - self.midair[idx].calc_6dof()[1]
+        # https://stackoverflow.com/questions/1755631/difference-between-two-quaternions
+        y_angle = quaternion.as_float_array(dd_future.to_quart() * np.conjugate(self.midair[idx].to_quart()))
         y = np.append(y_pos, y_angle)
+        print(y.shape)
 
         return trans(X), torch.tensor(data, dtype=torch.float32).flatten(),  torch.tensor(y, dtype=torch.float32).flatten()
 
@@ -52,13 +55,12 @@ def save_model(model, optmizer, epoch):
 
 if __name__ == "__main__":
     device = 'cuda'
-    model = darknet53(6).to(device)
+    model = darknet53(7).to(device)
 
     trainloader = DataLoader(DeltaDataset(), batch_size = 8, shuffle = True, pin_memory = True) 
 
     criterion = torch.nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr = 0.01)
-    scheduler = optim.lr_scheduler.ExponentialLR(optimizer, 0.1, verbose = True)
+    optimizer = optim.Adam(model.parameters(), lr = 1e-3)
 
     for epoch in range(40):  # loop over the dataset multiple times
 
@@ -84,7 +86,6 @@ if __name__ == "__main__":
                 print('[%d, %5d] loss: %.3f' %
                       (epoch + 1, i + 1, running_loss / 200))
                 running_loss = 0.0
-        scheduler.step()
         save_model(model,optimizer, epoch+1)
 
     print('Finished Training')
