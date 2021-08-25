@@ -8,7 +8,7 @@ import struct
 from scipy.spatial.transform import Rotation 
 import multiprocessing
 from model import Darknet53
-import quaternion
+from pyquaternion import Quaternion
 from PIL import Image
 
 DRAW_PCL = os.getenv("DRAW_PCL") if not None else None # whether to create a point cloud file ( it is slow ) 
@@ -36,7 +36,7 @@ class DroneData:
         return np.array([data[0], -data[1], -data[2]])
 
     def to_quart(self):
-        return np.quaternion(self.attitude[0], self.attitude[1], self.attitude[2], self.attitude[3])
+        return Quaternion(self.attitude).unit
 
 
     def calc_euler(self):

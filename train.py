@@ -6,12 +6,13 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import torch.optim as optim
-import quaternion
+from pyquaternion import Quaternion
 
 def loss_function(y_true, y):
     trasnlation_loss = torch.nn.functional.mse_loss(y_true[:,:3], y[:,:3])
-    angle = torch.nn.functional.mse_loss(y_true[:,3:], y[:,3:])
-    loss = angle + trasnlation_loss
+    angle = torch.nn.functional.l1_loss(y_true[:,3:], y[:,3:]) # q pred should be normalized, also this output should be a tanh
+    #norm_loss = torch.nn.functional.mse(1, y[:,3:]) # q pred should be normalized, also this output should be a tanh, also penalty:  1 - norm(q_pred)
+    loss = 512 * angle + trasnlation_loss # outdoor 200 - 1000 
     return loss
 
 trans = transforms.Compose([
@@ -39,10 +40,11 @@ class DeltaDataset(Dataset):
         # y 
         y_pos = dd_future.pos - self.midair[idx].pos
         # https://stackoverflow.com/questions/1755631/difference-between-two-quaternions
-        y_angle = quaternion.as_float_array(dd_future.to_quart() * np.conjugate(self.midair[idx].to_quart()))
+        y_angle = Quaternion(self.midair[idx].attitude).normalised.conjugate * Quaternion(dd_future.attitude).normalised
+        y_angle = y_angle.elements
         y = np.append(y_pos, y_angle)
 
-        return trans(X), torch.tensor(data, dtype=torch.float32).flatten(),  torch.tensor(y, dtype=torch.float32).flatten()
+        return trans(X), torch.tensor(data, dtype=torch.float32).flatten(),  torch.tensor(y, dtype=torch.float32).flatten(), dd_future.pos
 
 def save_model(model, optmizer, epoch):
     state = {
