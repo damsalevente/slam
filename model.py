@@ -52,25 +52,26 @@ class Darknet53(nn.Module):
 
         # for accel and gyro data
         self.sensor = nn.Sequential(
-                nn.Linear(48, 96),
+                nn.Linear(16, 32),
+                nn.ReLU(),
+                nn.Linear(32, 64),
                 nn.ReLU(),
                 )
         # RNN 
         self.cnnrnn = nn.LSTM(input_size = 256,
-                            hidden_size = 256,
+                            hidden_size = 512,
                             num_layers = 2,
                             batch_first = True)
 
         self.rnn_dropout1 = nn.Dropout(0.5)
 
-        self.sensorrnn = nn.LSTM(input_size = 12,
-                            hidden_size = 64,
-                            num_layers = 2,
-                            batch_first = True)
 
-        self.rnn_dropout2 = nn.Dropout(0.5)
         #final fully connected with the pose estimation
-        self.fc2 = nn.Linear(1024, self.num_classes)
+        self.fc2 = nn.Sequential(
+                nn.Linear(1024+64, 512),
+                nn.ReLU(),
+                nn.Linear(512, self.num_classes),
+                nn.Tanh())
 
     def forward(self, x, sensordata):
         out = self.conv1(x)
@@ -95,13 +96,8 @@ class Darknet53(nn.Module):
         out = out.contiguous().view(x.size(0), -1)
         
         sens_out = self.sensor(sensordata) # 64 to 512
-        sens_out = sens_out.view(x.size(0), 8, -1)
-        s_out, s_hc = self.sensorrnn(sens_out)
-        s_out = self.rnn_dropout2(s_out)
-
         #https://github.com/cezannec/capsule_net_pytorch/issues/4
-        s_out = s_out.contiguous().view(x.size(0), -1)
-        s_out = s_out.view(x.size(0), -1)
+        s_out = sens_out.contiguous().view(x.size(0), -1)
         
         concat = torch.cat((out, s_out), dim = 1)
         out = self.fc2(concat) # 512 to 6 
