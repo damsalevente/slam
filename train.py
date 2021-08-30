@@ -65,7 +65,7 @@ if __name__ == "__main__":
     trainloader = DataLoader(DeltaDataset(), batch_size = 8, shuffle =True, pin_memory = True) 
 
     criterion = torch.nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr = 1e-4)
+    optimizer = optim.Adam(model.parameters(), lr = 3e-5)
 
     for epoch in range(100):  # loop over the dataset multiple times
 

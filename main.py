@@ -85,7 +85,6 @@ class MidAirDataset:
         return current trajectory length in 10ms 
         '''
         traj_len = self._get_numpy('camera_data/color_left').shape[0]
-        print(traj_len)
         N =  int(traj_len // 25)
         return N * 100 # true index 
 

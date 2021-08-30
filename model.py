@@ -48,7 +48,10 @@ class Darknet53(nn.Module):
         self.conv6 = conv_batch(512, 1024, stride=2)
         self.residual_block5 = self.make_layer(block, in_channels=1024, num_blocks=4)
         self.global_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(1024, 512)
+        self.fc = nn.Sequential(
+                nn.Linear(1024, 512),
+                nn.ReLU(),
+                )
 
         # for accel and gyro data
         self.sensor = nn.Sequential(
@@ -57,20 +60,11 @@ class Darknet53(nn.Module):
                 nn.Linear(32, 64),
                 nn.ReLU(),
                 )
-        # RNN 
-        self.cnnrnn = nn.LSTM(input_size = 256,
-                            hidden_size = 512,
-                            num_layers = 2,
-                            batch_first = True)
-
-        self.rnn_dropout1 = nn.Dropout(0.5)
-
-
         #final fully connected with the pose estimation
         self.fc2 = nn.Sequential(
-                nn.Linear(1024+64, 512),
+                nn.Linear(512+64, 256),
                 nn.ReLU(),
-                nn.Linear(512, self.num_classes),
+                nn.Linear(256, self.num_classes),
                 nn.Tanh())
 
     def forward(self, x, sensordata):
@@ -89,14 +83,8 @@ class Darknet53(nn.Module):
         out = out.view(-1, 1024)
         out = self.fc(out) # 1024 to 512
 
-        out = out.view(x.size(0), 2, -1) # batch size, sequence len, fully connected output
-        out, hc = self.cnnrnn(out)
-        out = self.rnn_dropout1(out)
-        #https://github.com/cezannec/capsule_net_pytorch/issues/4
-        out = out.contiguous().view(x.size(0), -1)
         
         sens_out = self.sensor(sensordata) # 64 to 512
-        #https://github.com/cezannec/capsule_net_pytorch/issues/4
         s_out = sens_out.contiguous().view(x.size(0), -1)
         
         concat = torch.cat((out, s_out), dim = 1)
